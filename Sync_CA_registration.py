@@ -26,6 +26,7 @@ Key logic
 - If source M is ever empty for a person, destination K is empty on all their rows.
 - Red font in destination B is applied only after reconciliation, based on final I == 1.
 - Dashboard_externalCAs includes authors whose final destination K is empty.
+- Dashboard_allCAs includes all CAs regardless of destination K.
 - Dashboard does not double-count the same person in the same chapter.
 - If duplicate person+chapter submissions conflict, the latest submission is chosen
   using destination A as the ordering value.
@@ -63,7 +64,9 @@ from openpyxl.styles import Font
 
 DESTINATION_DATA_SHEET = "Data"
 DASHBOARD_SHEET = "Dashboard_externalCAs"
+ALL_CAS_DASHBOARD_SHEET = "Dashboard_allCAs"
 CHART_DATA_SHEET = "ChartData"
+ALL_CAS_CHART_DATA_SHEET = "ChartData_allCAs"
 
 SOURCE_FIRST_DATA_ROW = 2
 DESTINATION_FIRST_DATA_ROW = 2
@@ -499,22 +502,14 @@ def reconcile_people(destination_ws, source_metadata, record_count):
 # DASHBOARD STATISTICS
 # ============================================================
 
-def select_unique_dashboard_rows(destination_ws, record_count):
-    """
-    Dashboard population:
-      - destination K must be empty
-      - same person is counted only once per chapter
-      - if a person has multiple submissions for the same chapter,
-        choose the latest row using destination A
-    """
+def select_unique_dashboard_rows(destination_ws, record_count, require_empty_k=True):
+    """Select the latest row per person + chapter for a dashboard."""
     first_row = DESTINATION_FIRST_DATA_ROW
     last_row = first_row + record_count - 1
-
     selected = {}
 
     for row in range(first_row, last_row + 1):
-        # External CA filter after reconciliation.
-        if not is_empty(destination_ws[f"K{row}"].value):
+        if require_empty_k and not is_empty(destination_ws[f"K{row}"].value):
             continue
 
         chapter = destination_ws[f"H{row}"].value
@@ -522,35 +517,28 @@ def select_unique_dashboard_rows(destination_ws, record_count):
             chapter = int(chapter)
         except (TypeError, ValueError):
             continue
-
         if chapter not in range(1, 11):
             continue
 
         person_key = person_key_from_destination(destination_ws, row)
         if person_key is None:
-            # Avoid merging unrelated nameless records.
             person_key = ("__unnamed__", row)
 
         unique_key = (person_key, chapter)
         candidate_key = latest_sort_key(destination_ws[f"A{row}"].value, row)
-
-        if unique_key not in selected:
+        if unique_key not in selected or candidate_key > selected[unique_key][1]:
             selected[unique_key] = (row, candidate_key)
-        else:
-            existing_row, existing_key = selected[unique_key]
-            if candidate_key > existing_key:
-                selected[unique_key] = (row, candidate_key)
 
     return [row for row, _ in selected.values()]
 
 
-def recreate_chart_data_sheet(workbook, destination_ws, record_count):
-    if CHART_DATA_SHEET in workbook.sheetnames:
-        del workbook[CHART_DATA_SHEET]
+def recreate_chart_data_sheet(workbook, destination_ws, record_count, sheet_name=CHART_DATA_SHEET, require_empty_k=True):
+    if sheet_name in workbook.sheetnames:
+        del workbook[sheet_name]
 
-    ws = workbook.create_sheet(CHART_DATA_SHEET)
+    ws = workbook.create_sheet(sheet_name)
 
-    selected_rows = select_unique_dashboard_rows(destination_ws, record_count)
+    selected_rows = select_unique_dashboard_rows(destination_ws, record_count, require_empty_k=require_empty_k)
 
     stats = {
         chapter: {
@@ -694,26 +682,54 @@ def configure_pie_chart(chart, title):
     set_chart_text_size(chart, 11)
 
 
-def recreate_dashboard(workbook, chart_data_ws, stats, chart_ranges, record_count):
-    if DASHBOARD_SHEET in workbook.sheetnames:
-        dashboard_index = workbook.sheetnames.index(DASHBOARD_SHEET)
-        del workbook[DASHBOARD_SHEET]
-        dashboard = workbook.create_sheet(DASHBOARD_SHEET, dashboard_index)
-    else:
-        dashboard = workbook.create_sheet(DASHBOARD_SHEET)
 
-    dashboard["A1"] = "External CA Dashboard"
+
+def set_workbook_font(workbook, font_name="Arial Narrow"):
+    """Set all populated worksheet cells to font_name while preserving other font properties."""
+    for ws in workbook.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.value is not None:
+                    new_font = copy(cell.font)
+                    new_font.name = font_name
+                    cell.font = new_font
+
+def count_unique_people(destination_ws, record_count, require_empty_k=False):
+    """Count unique people (destination B + C), optionally requiring final K to be empty."""
+    people = set()
+    first_row = DESTINATION_FIRST_DATA_ROW
+    last_row = first_row + record_count - 1
+
+    for row in range(first_row, last_row + 1):
+        if require_empty_k and not is_empty(destination_ws[f"K{row}"].value):
+            continue
+
+        person_key = person_key_from_destination(destination_ws, row)
+        if person_key is not None:
+            people.add(person_key)
+
+    return len(people)
+
+def recreate_dashboard(workbook, destination_ws, chart_data_ws, stats, chart_ranges, record_count, dashboard_name=DASHBOARD_SHEET, title='External CA Dashboard', filter_text='Authors that are not a AR7 WGI CLA or LA.', require_empty_k=False, total_label='Total CAs:'):
+    if dashboard_name in workbook.sheetnames:
+        dashboard_index = workbook.sheetnames.index(dashboard_name)
+        del workbook[dashboard_name]
+        dashboard = workbook.create_sheet(dashboard_name, dashboard_index)
+    else:
+        dashboard = workbook.create_sheet(dashboard_name)
+
+    dashboard["A1"] = title
     dashboard["A1"].font = Font(bold=True, size=16)
 
     dashboard["A2"] = "Last updated:"
     dashboard["B2"] = datetime.now()
     dashboard["B2"].number_format = "yyyy-mm-dd hh:mm"
 
-    dashboard["A3"] = "Total records in Data:"
-    dashboard["B3"] = record_count
+    dashboard["A3"] = total_label
+    dashboard["B3"] = count_unique_people(destination_ws, record_count, require_empty_k=require_empty_k)
 
     dashboard["A4"] = "Dashboard filter:"
-    dashboard["B4"] = "Authors that are not a AR7 WGI CLA or LA."
+    dashboard["B4"] = filter_text
 
     dashboard["A5"] = "Dashboard counting:"
     dashboard["B5"] = "Each author is counted once per chapter; latest submission in column A is used."
@@ -825,6 +841,25 @@ def _chart_title(root):
     return "".join(node.text or "" for node in texts)
 
 
+
+def _set_chart_typeface(root, typeface="Arial Narrow"):
+    """Apply a typeface to chart titles, legends, and data-label text."""
+    # Set/replace typeface on existing DrawingML run/default-run properties.
+    for tag_name in ("rPr", "defRPr", "endParaRPr"):
+        for node in root.iter(f"{{{DRAWING_NS}}}{tag_name}"):
+            latin = node.find(f"{{{DRAWING_NS}}}latin")
+            if latin is None:
+                latin = ET.SubElement(node, f"{{{DRAWING_NS}}}latin")
+            latin.set("typeface", typeface)
+
+    # Also set the chart-level text properties where present.
+    for tx_pr in root.findall(f".//{{{CHART_NS}}}txPr"):
+        for node in tx_pr.iter(f"{{{DRAWING_NS}}}defRPr"):
+            latin = node.find(f"{{{DRAWING_NS}}}latin")
+            if latin is None:
+                latin = ET.SubElement(node, f"{{{DRAWING_NS}}}latin")
+            latin.set("typeface", typeface)
+
 def _set_title_upper_left(root):
     """Move the chart title to the upper-left of the chart area."""
     ns = {"c": CHART_NS}
@@ -914,7 +949,7 @@ def _make_custom_data_label(index, label_text):
     return d_lbl
 
 
-def patch_exact_pie_labels(xlsx_path, stats):
+def patch_exact_pie_labels(xlsx_path, stats, all_stats=None):
     """
     openpyxl/Excel's automatic pie labels cannot reliably format value and
     percentage as exactly '5 (25%)'. This function patches the saved XLSX's
@@ -950,10 +985,16 @@ def patch_exact_pie_labels(xlsx_path, stats):
                     if match:
                         chapter = int(match.group(1))
                         chart_type = match.group(2).title()
-                        labels = _labels_for_chart(stats, chapter, chart_type)
+                        xml_text = data.decode("utf-8", errors="ignore")
+                        chart_stats = stats
+                        if all_stats is not None and ALL_CAS_CHART_DATA_SHEET in xml_text:
+                            chart_stats = all_stats
+                        labels = _labels_for_chart(chart_stats, chapter, chart_type)
 
-                        # Keep the title away from the pie/data labels.
+                        # Keep the title away from the pie/data labels and
+                        # use Arial Narrow for chart title, legend and labels.
                         _set_title_upper_left(root)
+                        _set_chart_typeface(root, "Arial Narrow")
 
                         d_lbls = root.find(
                             ".//c:pieChart/c:dLbls",
@@ -995,15 +1036,7 @@ def patch_exact_pie_labels(xlsx_path, stats):
             os.remove(temp_path)
         raise
 
-from copy import copy
-def set_workbook_font(workbook, font_name="Arial Narrow"):
-    for ws in workbook.worksheets:
-        for row in ws.iter_rows():
-            for cell in row:
-                if cell.value is not None:
-                    new_font = copy(cell.font)
-                    new_font.name = font_name
-                    cell.font = new_font
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -1036,24 +1069,38 @@ def main():
         )
 
         chart_data_ws, stats, chart_ranges = recreate_chart_data_sheet(
-            destination_wb,
-            destination_ws,
-            record_count
+            destination_wb, destination_ws, record_count,
+            sheet_name=CHART_DATA_SHEET, require_empty_k=True
         )
-
         recreate_dashboard(
-            destination_wb,
-            chart_data_ws,
-            stats,
-            chart_ranges,
-            record_count
+            destination_wb, destination_ws, chart_data_ws, stats, chart_ranges, record_count,
+            dashboard_name=DASHBOARD_SHEET,
+            title="External CA Dashboard",
+            filter_text="Authors that are not a AR7 WGI CLA or LA.",
+            require_empty_k=True,
+            total_label="Total external CAs:"
         )
 
+        all_chart_data_ws, all_stats, all_chart_ranges = recreate_chart_data_sheet(
+            destination_wb, destination_ws, record_count,
+            sheet_name=ALL_CAS_CHART_DATA_SHEET, require_empty_k=False
+        )
+        recreate_dashboard(
+            destination_wb, destination_ws, all_chart_data_ws, all_stats, all_chart_ranges, record_count,
+            dashboard_name=ALL_CAS_DASHBOARD_SHEET,
+            title="All CA Dashboard",
+            filter_text="All CAs, regardless of the value in destination K.",
+            require_empty_k=False,
+            total_label="Total CAs:"
+        )
+
+        # Use Arial Narrow throughout worksheet cells while preserving size/style/color.
         set_workbook_font(destination_wb, "Arial Narrow")
+
         destination_wb.save(output_file)
 
-        # Patch chart XML so pie labels are exactly like: 5 (25%)
-        patch_exact_pie_labels(output_file, stats)
+        # Patch both dashboards so pie labels are exactly like: 5 (25%)
+        patch_exact_pie_labels(output_file, stats, all_stats)
 
         root = Tk()
         root.withdraw()
@@ -1064,7 +1111,7 @@ def main():
             (
                 "The workbook was created successfully.\n\n"
                 f"Records copied: {record_count}\n"
-                f"Dashboard: {DASHBOARD_SHEET}\n\n"
+                f"Dashboards: {DASHBOARD_SHEET}, {ALL_CAS_DASHBOARD_SHEET}\n\n"
                 f"Output file:\n{output_file}"
             )
         )
