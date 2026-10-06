@@ -2,20 +2,23 @@
 
 `Sync_CA_registration.py` is a Python tool for processing Contributing Author (CA) registration data collected through Microsoft Forms and transferring it into a standardised Excel workbook.
 
-The script was developed for a workflow in which the Microsoft Forms response workbook and the destination workbook are stored in different Microsoft 365 / SharePoint environments. Rather than connecting directly to SharePoint, the script uses a simple **download → process → upload** workflow.
+The tool is designed for a workflow in which the Microsoft Forms response workbook and the destination workbook may be stored in different Microsoft 365 / SharePoint environments. It therefore uses a simple **download → process → upload** workflow rather than connecting directly to SharePoint.
 
-## Overview
+## Features
 
 The script:
 
-- imports selected fields from a Microsoft Forms Excel response file;
-- transfers them to the `Data` worksheet of an existing Excel template;
-- standardises selected fields;
+- imports selected fields from a Microsoft Forms response workbook;
+- transfers the data to the `Data` worksheet of an existing Excel template;
+- standardises selected fields and family names;
 - identifies multiple submissions from the same person;
 - reconciles information across duplicate submissions;
-- applies formatting rules;
-- generates chapter-level gender and regional statistics;
-- creates pie charts in an external-CA dashboard; and
+- preserves template formatting where applicable;
+- applies **Arial Narrow** throughout the generated workbook;
+- creates separate dashboards for external CAs and all CAs;
+- calculates chapter-level gender and regional statistics;
+- avoids double-counting repeated submissions;
+- generates gender and regional pie charts for Chapters 1–10; and
 - saves the processed data as a new Excel workbook.
 
 The original source and template workbooks are not modified.
@@ -25,7 +28,7 @@ The original source and template workbooks are not modified.
 - Python 3.9 or later
 - `openpyxl`
 
-Install the required Python package with:
+Install the required package with:
 
 ```bash
 pip install openpyxl
@@ -41,13 +44,13 @@ Run:
 python Sync_CA_registration.py
 ```
 
-You will be asked to select:
+The script will ask you to select:
 
 1. the downloaded Microsoft Forms response workbook;
 2. the destination/template workbook; and
 3. the location where the processed workbook should be saved.
 
-The default output filename is:
+The suggested output filename is:
 
 ```text
 02. WGI CA list.xlsx
@@ -65,9 +68,7 @@ Download response workbook
 Run Sync_CA_registration.py
       │
       ├── Select Forms response workbook
-      │
       ├── Select destination/template workbook
-      │
       └── Select output location
       │
       ▼
@@ -80,12 +81,12 @@ Review output
 Upload/replace workbook in SharePoint
 ```
 
-## Excel column mapping
+## Source-to-destination mapping
 
-The script transfers the following columns from the Forms response workbook to the destination `Data` worksheet:
+The following fields are copied from the Forms response workbook to the destination `Data` worksheet:
 
-| Source | Destination |
-|:------:|:-----------:|
+| Source column | Destination column |
+|:---:|:---:|
 | A | A |
 | H | B |
 | I | C |
@@ -104,31 +105,33 @@ The script transfers the following columns from the Forms response workbook to t
 | U | P |
 | V | Q |
 
-Source data are read from row 2 onwards. The header row of the destination worksheet is preserved.
+Source data are read from row 2 onwards.
+
+Row 1 of the destination `Data` worksheet is preserved as the header row.
 
 ## Data standardisation
 
 ### Gender
 
-Values from source column J are converted to:
+Values from source column J are converted as follows:
 
-| Forms value | Destination value |
+| Source | Destination |
 |---|---|
-| Male | M |
-| Female | F |
+| `Male` | `M` |
+| `Female` | `F` |
 
 ### Yes/No field
 
-Values from source column K are converted to:
+Values from source column K are converted as follows:
 
-| Forms value | Destination value |
+| Source | Destination |
 |---|---:|
-| Yes | 1 |
-| No | 0 |
+| `Yes` | `1` |
+| `No` | `0` |
 
 ### Chapter
 
-Chapter information from source column W is converted from text to a chapter number.
+Chapter information from source column W is converted from text into a numeric chapter value.
 
 For example:
 
@@ -146,12 +149,12 @@ Family names are standardised before duplicate submissions are identified.
 
 The script:
 
-- removes leading and trailing spaces;
+- removes leading and trailing whitespace;
 - collapses repeated spaces;
 - converts Latin names to uppercase; and
 - removes Latin accents/diacritics.
 
-For example:
+Examples:
 
 ```text
 García  → GARCIA
@@ -161,27 +164,59 @@ Dvořák  → DVORAK
 
 Non-Latin scripts are preserved rather than transliterated into Latin characters.
 
-## Handling multiple submissions
+## Identifying the same person
 
-A person is identified by the combination of:
+A person is identified using the combination of:
 
 ```text
 Family name + Given name
 ```
 
-If the same person submitted the registration form more than once, selected information is reconciled across **all of their submissions**.
+The comparison is case-insensitive and ignores unnecessary whitespace.
 
-### CLA/LA-related fields
+Family-name standardisation is performed before this comparison.
 
-For each person:
+## Handling multiple submissions
 
-- if source column K contains `No` in **any** submission, destination column I is set to `0` for all of that person's records;
-- if source column L is empty in **any** submission, destination column J is empty for all of that person's records;
-- if source column M is empty in **any** submission, destination column K is empty for all of that person's records.
+If the same person submitted the form multiple times, selected information is reconciled across **all of their submissions**.
 
-Reconciliation is completed before dashboard statistics are calculated.
+### Destination column I
+
+If source column K contains `No` in **any** submission, destination column I is set to:
+
+```text
+0
+```
+
+for all submissions from that person.
+
+### Destination column J
+
+If source column L is empty in **any** submission, destination column J is empty for all submissions from that person.
+
+### Destination column K
+
+If source column M is empty in **any** submission, destination column K is empty for all submissions from that person.
+
+Reconciliation is performed before dashboard statistics are calculated.
 
 ## Formatting
+
+The output workbook uses:
+
+```text
+Arial Narrow
+```
+
+as its standard font.
+
+The font is applied to worksheet cells and chart text while preserving other formatting properties where applicable, including:
+
+- font size;
+- bold/italic formatting; and
+- font colour.
+
+### Red family names
 
 Family names in destination column B are displayed in red when the person's final reconciled value in destination column I is:
 
@@ -189,53 +224,95 @@ Family names in destination column B are displayed in red when the person's fina
 1
 ```
 
-Other existing formatting from the template is retained where applicable.
+Otherwise, the normal template formatting is retained.
 
-The workbook can also be configured to use **Arial Narrow** as its standard font.
+# Dashboards
 
-## Dashboard
-
-The script generates/updates:
+The script generates two dashboards:
 
 ```text
 Dashboard_externalCAs
+Dashboard_allCAs
 ```
 
-The dashboard is restricted to:
+Both dashboards use the same chapter-level counting and chart-generation logic but include different populations.
 
-> Authors that are not a AR7 WGI CLA or LA.
+## Dashboard_externalCAs
 
-This filter is based on the final reconciled value of destination column K.
+`Dashboard_externalCAs` includes only authors whose final reconciled value in destination column K is empty.
 
-## Avoiding double counting
+The dashboard displays:
 
-Repeated submissions should not cause the same author to be counted multiple times for the same chapter.
+```text
+Total external CAs:
+```
 
-The counting unit used by the dashboard is:
+This is the number of **unique external CAs**, not the number of form submissions.
+
+Multiple submissions from the same person therefore do not inflate the total.
+
+## Dashboard_allCAs
+
+`Dashboard_allCAs` includes **all CAs**, regardless of the value in destination column K.
+
+The dashboard displays:
+
+```text
+Total CAs:
+```
+
+This is the number of **unique CAs** in the dataset.
+
+Again, multiple submissions from the same person are counted only once in this total.
+
+## Chapter-level counting
+
+For chapter-level statistics, the counting unit is:
 
 ```text
 Person + Chapter
 ```
 
-For example, if one person submits the form three times for Chapter 4, they are counted **once** for Chapter 4.
+This prevents repeated submissions from causing an author to be counted more than once within the same chapter.
 
-If that person is associated with both Chapter 4 and Chapter 7, they can be counted once in each chapter.
+For example, if one author submits the form three times for Chapter 4:
 
-If multiple submissions from the same person for the same chapter contain conflicting gender or regional information, the **latest submission**, according to destination column A, is used.
+```text
+Author A + Chapter 4
+Author A + Chapter 4
+Author A + Chapter 4
+```
+
+the author is counted **once** for Chapter 4.
+
+However, if the same author is associated with two chapters:
+
+```text
+Author A + Chapter 4
+Author A + Chapter 7
+```
+
+the author is counted once in Chapter 4 and once in Chapter 7.
+
+## Conflicting duplicate submissions
+
+If multiple submissions from the same person for the same chapter contain conflicting gender or regional information, the **latest submission** is used.
+
+Submission order is determined using destination column A.
 
 ## Gender statistics
 
-Gender statistics are calculated using destination column D.
+Gender statistics are calculated from destination column D.
 
-A gender pie chart can be generated for each chapter from Chapter 1 to Chapter 10.
+Statistics are generated separately for Chapters 1–10.
 
-Categories with a count of zero are excluded from both the pie chart and its legend.
+Categories with a count of zero are omitted from both the pie chart and its legend.
 
 ## Regional statistics
 
-Regional statistics are calculated using destination column G.
+Regional statistics are calculated from destination column G.
 
-The six regions are:
+The following six regions are used:
 
 1. Africa
 2. Asia
@@ -244,11 +321,11 @@ The six regions are:
 5. South America
 6. South-West Pacific
 
-Regions with a count of zero are excluded from both the pie chart and its legend.
+Regions with a count of zero are omitted from both the pie chart and its legend.
 
-## Pie charts
+# Pie charts
 
-The dashboard contains chapter-level gender and regional pie charts.
+Both dashboards contain chapter-level gender and regional pie charts.
 
 Data labels use the format:
 
@@ -259,65 +336,82 @@ Data labels use the format:
 where:
 
 - `5` is the number of authors; and
-- `25%` is their percentage of the relevant chapter total.
+- `25%` is the percentage of the relevant chapter population.
+
+## Chart formatting
 
 The charts are configured with:
 
-- data labels without coloured legend-key squares;
-- leader lines for labels placed outside the pie;
-- legends below the pie charts;
-- horizontal legend layout where sufficient space is available; and
-- 11-point legend and data-label text.
+- width: `20`;
+- height: `7`;
+- Arial Narrow text;
+- 11-point legend and data-label text;
+- legends positioned below the pie chart;
+- horizontal legend layout where sufficient width is available;
+- no coloured legend-key squares beside the `5 (25%)` data labels;
+- labels positioned outside the pie when necessary; and
+- leader lines for labels positioned outside the pie.
 
-Excel ultimately determines whether a long legend needs to wrap depending on the available chart width.
+The coloured markers remain in the legend so that categories can be matched to their corresponding pie slices.
 
-## Helper worksheet
+Excel ultimately determines whether a particularly long legend needs to wrap depending on the available chart width.
 
-A hidden worksheet called:
+# Helper worksheets
+
+The dashboard calculations use hidden helper worksheets.
+
+The external-CA dashboard uses:
 
 ```text
 ChartData
 ```
 
-stores the data used to construct the dashboard charts.
+The all-CA dashboard uses:
 
-This worksheet is generated automatically and should not normally require manual editing.
+```text
+ChartData_allCAs
+```
+
+These worksheets contain the values used to construct the pie charts and are hidden in the final workbook.
+
+They should not normally require manual editing.
 
 ## Expected workbook structure
 
-The destination/template workbook is expected to contain:
+The destination/template workbook should contain:
 
 ```text
 Data
 Dashboard_externalCAs
 ```
 
-The script creates or recreates:
+The script creates or recreates the dashboard/helper worksheets required for the output, including:
 
 ```text
+Dashboard_externalCAs
+Dashboard_allCAs
 ChartData
+ChartData_allCAs
 ```
 
-`ChartData` is hidden in the final workbook.
-
-## Important limitations
+# Important limitations
 
 The script does **not**:
 
 - connect directly to Microsoft Forms;
 - authenticate to Microsoft 365;
-- automatically download the source workbook;
-- automatically upload the output to SharePoint;
+- automatically download the Forms response workbook;
+- automatically upload the resulting workbook to SharePoint;
 - require Power Automate; or
 - require Office Scripts.
 
-The user remains responsible for downloading the current Forms response workbook and uploading the processed workbook to the appropriate SharePoint location.
+The user is responsible for downloading the current Forms response workbook and uploading/replacing the processed workbook in the appropriate SharePoint location.
 
-## Data protection
+# Data protection
 
 The registration workbook may contain personal and confidential information.
 
-**Do not commit response workbooks, processed workbooks, or other files containing registration data to a public GitHub repository.**
+**Do not commit Forms response workbooks, processed CA workbooks, or other files containing registration data to a public GitHub repository.**
 
 It is strongly recommended to include a `.gitignore` file such as:
 
@@ -335,21 +429,19 @@ It is strongly recommended to include a `.gitignore` file such as:
 __pycache__/
 *.py[cod]
 
-# Local environments
+# Virtual environments
 .venv/
 venv/
 env/
 
-# OS files
+# Operating-system files
 .DS_Store
 Thumbs.db
 ```
 
-The GitHub repository should normally contain only the script, documentation, and other non-confidential supporting material.
+Only the Python source code, documentation, and other non-confidential supporting files should normally be committed.
 
-## Repository structure
-
-A simple repository structure is:
+# Suggested repository structure
 
 ```text
 CA-registration-sync/
@@ -366,6 +458,6 @@ The `requirements.txt` file only needs:
 openpyxl
 ```
 
-## License
+# License
 
 Add an appropriate licence before distributing or reusing the tool outside its intended organisational context.
