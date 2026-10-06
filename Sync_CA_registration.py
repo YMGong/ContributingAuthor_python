@@ -27,7 +27,7 @@ Key logic
 - Red font in destination B is applied only after reconciliation, based on final I == 1.
 - Dashboard_externalCAs includes authors whose final destination K is empty.
 - Dashboard_allCAs includes all CAs regardless of destination K.
-- Dashboard does not double-count the same person in the same chapter.
+- Dashboard covers Chapters 1–10 and Annex I: Atlas and does not double-count the same person in the same chapter/category.
 - If duplicate person+chapter submissions conflict, the latest submission is chosen
   using destination A as the ordering value.
 - Gender and region pie charts omit zero-count categories, show count + percentage,
@@ -99,6 +99,11 @@ REGIONS = [
     "South America",
     "South-West Pacific",
 ]
+
+DASHBOARD_CHAPTERS = list(range(1, 11)) + ["Annex I: Atlas"]
+
+def chapter_label(chapter):
+    return f"Chapter {chapter}" if isinstance(chapter, int) else chapter
 
 
 # ============================================================
@@ -516,8 +521,9 @@ def select_unique_dashboard_rows(destination_ws, record_count, require_empty_k=T
         try:
             chapter = int(chapter)
         except (TypeError, ValueError):
-            continue
-        if chapter not in range(1, 11):
+            chapter = normalize_text(chapter)
+
+        if chapter not in DASHBOARD_CHAPTERS:
             continue
 
         person_key = person_key_from_destination(destination_ws, row)
@@ -547,11 +553,15 @@ def recreate_chart_data_sheet(workbook, destination_ws, record_count, sheet_name
             "regions": {region: 0 for region in REGIONS},
             "people": 0,
         }
-        for chapter in range(1, 11)
+        for chapter in DASHBOARD_CHAPTERS
     }
 
     for row in selected_rows:
-        chapter = int(destination_ws[f"H{row}"].value)
+        chapter = destination_ws[f"H{row}"].value
+        try:
+            chapter = int(chapter)
+        except (TypeError, ValueError):
+            chapter = normalize_text(chapter)
         stats[chapter]["people"] += 1
 
         gender = normalize_text(destination_ws[f"D{row}"].value).upper()
@@ -567,8 +577,9 @@ def recreate_chart_data_sheet(workbook, destination_ws, record_count, sheet_name
     # Variable-length blocks; zero-count categories are omitted completely.
     chart_ranges = {}
 
-    for chapter in range(1, 11):
-        base = 1 + (chapter - 1) * 12
+    for chapter_index, chapter in enumerate(DASHBOARD_CHAPTERS):
+        base = 1 + chapter_index * 12
+        label = chapter_label(chapter)
 
         gender_items = [
             ("Male", stats[chapter]["M"]),
@@ -576,7 +587,7 @@ def recreate_chart_data_sheet(workbook, destination_ws, record_count, sheet_name
         ]
         gender_items = [(name, count) for name, count in gender_items if count > 0]
 
-        ws[f"A{base}"] = f"Chapter {chapter} Gender"
+        ws[f"A{base}"] = f"{label} Gender"
         ws[f"B{base}"] = "Count"
         for offset, (name, count) in enumerate(gender_items, start=1):
             ws[f"A{base + offset}"] = name
@@ -588,7 +599,7 @@ def recreate_chart_data_sheet(workbook, destination_ws, record_count, sheet_name
             if stats[chapter]["regions"][region] > 0
         ]
 
-        ws[f"D{base}"] = f"Chapter {chapter} Region"
+        ws[f"D{base}"] = f"{label} Region"
         ws[f"E{base}"] = "Count"
         for offset, (name, count) in enumerate(region_items, start=1):
             ws[f"D{base + offset}"] = name
@@ -740,9 +751,10 @@ def recreate_dashboard(workbook, destination_ws, chart_data_ws, stats, chart_ran
     start_row = 8
     rows_per_chapter = 17
 
-    for chapter in range(1, 11):
-        block_row = start_row + (chapter - 1) * rows_per_chapter
-        dashboard[f"A{block_row}"] = f"Chapter {chapter}"
+    for chapter_index, chapter in enumerate(DASHBOARD_CHAPTERS):
+        block_row = start_row + chapter_index * rows_per_chapter
+        label = chapter_label(chapter)
+        dashboard[f"A{block_row}"] = label
         dashboard[f"A{block_row}"].font = Font(bold=True, size=14)
 
         ranges = chart_ranges[chapter]
@@ -750,7 +762,7 @@ def recreate_dashboard(workbook, destination_ws, chart_data_ws, stats, chart_ran
         # Gender pie: only non-zero categories are included.
         if ranges["gender_count"] > 0:
             gender_chart = PieChart()
-            configure_pie_chart(gender_chart, f"Chapter {chapter} – Gender")
+            configure_pie_chart(gender_chart, f"{label} – Gender")
 
             base = ranges["gender_start"]
             gender_data = Reference(
@@ -768,7 +780,7 @@ def recreate_dashboard(workbook, destination_ws, chart_data_ws, stats, chart_ran
         # Region pie: only non-zero categories are included.
         if ranges["region_count"] > 0:
             region_chart = PieChart()
-            configure_pie_chart(region_chart, f"Chapter {chapter} – Region")
+            configure_pie_chart(region_chart, f"{label} – Region")
 
             base = ranges["region_start"]
             region_data = Reference(
@@ -956,8 +968,8 @@ def patch_exact_pie_labels(xlsx_path, stats, all_stats=None):
     chart XML so every non-zero pie slice gets that exact custom label.
 
     It finds charts by their titles:
-        Chapter N – Gender
-        Chapter N – Region
+        Chapter N – Gender / Region
+        Annex I: Atlas – Gender / Region
     """
     temp_fd, temp_path = tempfile.mkstemp(suffix=".xlsx")
     os.close(temp_fd)
@@ -977,14 +989,14 @@ def patch_exact_pie_labels(xlsx_path, stats, all_stats=None):
                     title = _chart_title(root)
 
                     match = re.search(
-                        r"Chapter\s+(\d+)\s*[–-]\s*(Gender|Region)",
+                        r"(Chapter\s+(\d+)|Annex\s+I:\s*Atlas)\s*[–-]\s*(Gender|Region)",
                         title,
                         flags=re.IGNORECASE
                     )
 
                     if match:
-                        chapter = int(match.group(1))
-                        chart_type = match.group(2).title()
+                        chapter = int(match.group(2)) if match.group(2) else "Annex I: Atlas"
+                        chart_type = match.group(3).title()
                         xml_text = data.decode("utf-8", errors="ignore")
                         chart_stats = stats
                         if all_stats is not None and ALL_CAS_CHART_DATA_SHEET in xml_text:
