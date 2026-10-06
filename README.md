@@ -36,6 +36,12 @@ pip install openpyxl
 
 The script also uses `tkinter` for file-selection dialogs. `tkinter` is included with most standard Python installations.
 
+**Files used in this workflow:**
+
+- [IPCC WGI AR7 Contributing Author Registration Form.xlsx](https://upsud-my.sharepoint.com/:x:/r/personal/yongmei_gong_universite-paris-saclay_fr/Documents/IPCC%20WGI%20AR7%20Contributing%20Author%20Registration%20Form.xlsx?d=w0e7da531d8184f7eb4e8cb7dbfcdc232&csf=1&web=1&e=G9SfKa)
+- [02. WGI CA list_template.xlsx](./02.%20WGI%20CA%20list_template.xlsx)
+- [Sync_CA_registration.py](./Sync_CA_registration.py)
+
 ## Running the tool
 
 Run:
@@ -63,10 +69,9 @@ Microsoft Forms
       │
       ▼
 Download response workbook
-[IPCC WGI AR7 Contributing Author Registration Form.xlsx](https://upsud-my.sharepoint.com/:x:/r/personal/yongmei_gong_universite-paris-saclay_fr/Documents/IPCC%20WGI%20AR7%20Contributing%20Author%20Registration%20Form.xlsx?d=w0e7da531d8184f7eb4e8cb7dbfcdc232&csf=1&web=1&e=OYAcE4)
       │
       ▼
-Download [02. WGI CA list_template.xlsx](<./02. WGI CA list_template.xlsx>) 
+Download 02. WGI CA list_template.xlsx
       │
       ▼
 Run Sync_CA_registration.py
